@@ -1,7 +1,7 @@
 // *** Start of: /home/olaf/clobber/main.cpp *** 
 #pragma GCC optimize("Ofast","unroll-loops","omit-frame-pointer","inline")
-#pragma GCC option("march=native","tune=native","no-zero-upper")
-#pragma GCC target("avx")
+#pragma GCC option("arch=native","tune=native","no-zero-upper")
+#pragma GCC target("avx2","popcnt","rdrnd","bmi2")
 
 #include <bits/stdc++.h>
 
@@ -15,6 +15,8 @@
    
    #include <string>
    
+   #include <x86intrin.h>
+   
    typedef unsigned long long BB;
    typedef unsigned long long Key;
    typedef unsigned long long u64;
@@ -26,6 +28,10 @@
    const Color COLOR_NB = 2;
    
    typedef int16_t Action;
+   
+   inline float fastlogf(const float& x) { union { float f; uint32_t i; } vx = { x }; float y = vx.i; y *= 8.2629582881927490e-8f; return(y - 87.989971088f); }
+   inline float fastsqrtf(const float& x) { union { int i; float x; } u; u.x = x; u.i = (1 << 29) + (u.i >> 1) - (1 << 22); return(u.x); }
+   inline float rsqrt_fast(float x) { return _mm_cvtss_f32(_mm_rsqrt_ss(_mm_set_ss(x))); }
    
    inline Action make_action(const int &from, const int &to) {
        return Action(from | (to << 6));
@@ -272,12 +278,33 @@
   };
   
   // *** End of: /home/olaf/clobber/State/state.h *** 
+  // *** Start of: /home/olaf/clobber/Utils/timer.h *** 
+  #include <chrono>
+  
+  class Timer {
+  public:
+  
+      void start() {
+          start_time = std::chrono::steady_clock::now();
+      }
+  
+      inline auto get_elapsed() {
+          using namespace std::chrono;
+          milliseconds elapsed = duration_cast<milliseconds>(steady_clock::now() - start_time);
+          return elapsed.count();
+      }
+  
+  private:
+      std::chrono::steady_clock::time_point start_time;
+  };
+  
+  // *** End of: /home/olaf/clobber/Utils/timer.h *** 
   // *** Start of: /home/olaf/clobber/MCTS/node.h *** 
   
   #include <bits/stdc++.h>
   
   
-  constexpr int POOL_SIZE = 60'000'000;
+  constexpr int POOL_SIZE = 25'000'000;
   
   constexpr float infinity = std::numeric_limits<float>::max();
   
@@ -292,7 +319,7 @@
       static Node pool[POOL_SIZE];
       static int  pool_size;
   
-      // 29 bytes ~ 68 * 10^6 nodes
+      // 29 bytes
   
       State state;
       
@@ -318,27 +345,33 @@
           for(Action *now = actions; now != end; now++) {
               state.move(*now);
               pool[pool_size++] = Node(state);
+              if(pool_size == POOL_SIZE)  pool_size = 0;
               state.undo(*now);
           }
       }
   
-      inline float get_ucb(Node* parent) const {
+      inline float get_ucb(float sqrt_log_vis) {
           if(vis == 0)    return infinity;
-          return (vis - win) / float(vis) + EXP_RATE * sqrt(log(parent->vis) / vis);
+          float inv_sqrt = rsqrt_fast(vis);
+          return (((vis - win) * inv_sqrt) + sqrt_log_vis) * inv_sqrt;
       }
   
       inline Node* select() {
           float best_ucb = -infinity;
           Node* best_node = nullptr;
   
-          for(int child_id = 0; child_id < child_len; child_id++) {
-              Node *child = &pool[child_beg + child_id];
+          float sqrt_log_vis = EXP_RATE * fastsqrtf(fastlogf(vis));
+          for(int child_id = child_len - 1; child_id >= 0; child_id--) {
+              int id = child_beg + child_id;
+              if(id > POOL_SIZE)  id -= POOL_SIZE;
+              Node *child = &pool[id];
           
-              float child_ucb = child->get_ucb(this);
+              float child_ucb = child->get_ucb(sqrt_log_vis);
               if(child_ucb > best_ucb) {
                   best_ucb = child_ucb;
                   best_node = child;
               }
+              if(best_ucb == infinity)    break;
           }
           assert(best_node != nullptr);
           return best_node;
@@ -351,7 +384,9 @@
           state.get_actions(actions);
   
           for(int child_id = 0; child_id < child_len; child_id++) {
-              Node *child = &pool[child_beg + child_id];
+              int id = child_beg + child_id;
+              if(id > POOL_SIZE)  id -= POOL_SIZE;
+              Node *child = &pool[id];
   
               if(child->vis > best_vis) {
                   best_vis = child->vis;
@@ -394,6 +429,8 @@
  
  public:
  
+     Timer timer;
+ 
      Node *root;
     
      MCTS() {
@@ -403,7 +440,7 @@
          root = &Node::pool[Node::pool_size++];
          root->expand();
      }
-  
+     
      inline Color simulate(Node* node) {
          State state = node->state;
          while(!state.is_end()) {
@@ -411,7 +448,7 @@
          }
          return state.get_player();
      }
- 
+     
      inline Color select(Node *node) {
          if(node->is_terminal()) {
              Color loser = node->state.get_player();
@@ -430,17 +467,15 @@
          node->update(loser);
          return loser;
      }
- 
-     inline void run(int time_limit) {
-         clock_t start = clock();
- 
-         int iterations = 0;
      
+     inline void run(int time_limit) {
+         
+         int iterations = 0;
          do {
              select(root);
              iterations++;
-         } while((clock() - start) * 1000 < CLOCKS_PER_SEC * time_limit * 97 / 100);
-        
+         } while(timer.get_elapsed() < time_limit - 5);
+         
          // std::cerr << "iterations: " << iterations << '\n';
      }
  
@@ -449,6 +484,7 @@
      }
  
      inline void pass_action(Action action) {
+         if(root->vis == 0)  root->expand();
          root = root->get_child(action);
      }
  
@@ -502,6 +538,7 @@ int main() {
         for(int i = 0; i < board_size; i++) {
             std::string line;
             std::cin >> line;
+            if(i == 0)  mcts.timer.start();
         }
 
         std::string last_action;
@@ -513,20 +550,22 @@ int main() {
         if(last_action != "null") {
             mcts.pass_action(from_string(last_action));
         }
-       
+      
         mcts.run(time_limit);
- 
+
         Action best_action = mcts.best_action();
-    
+ 
         std::cout << to_string(best_action) << '\n';
-        
+ 
         std::cerr << "pool%: " << Node::pool_size / float(POOL_SIZE) * 100 << '\n';
 
         mcts.pass_action(best_action);
         
         time_limit = 100;
 
+#ifdef LOCAL
         return 0;
+#endif
     }
 }
 

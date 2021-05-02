@@ -1,6 +1,6 @@
 #pragma GCC optimize("Ofast","unroll-loops","omit-frame-pointer","inline")
-#pragma GCC option("march=native","tune=native","no-zero-upper")
-#pragma GCC target("avx")
+#pragma GCC option("arch=native","tune=native","no-zero-upper")
+#pragma GCC target("avx2","popcnt","rdrnd","bmi2")
 
 #include <bits/stdc++.h>
 
@@ -49,6 +49,7 @@ int main() {
         for(int i = 0; i < board_size; i++) {
             std::string line;
             std::cin >> line;
+            if(i == 0)  mcts.timer.start();
         }
 
         std::string last_action;
@@ -60,19 +61,21 @@ int main() {
         if(last_action != "null") {
             mcts.pass_action(from_string(last_action));
         }
-       
+      
         mcts.run(time_limit);
- 
+
         Action best_action = mcts.best_action();
-    
+ 
         std::cout << to_string(best_action) << '\n';
-        
+ 
         std::cerr << "pool%: " << Node::pool_size / float(POOL_SIZE) * 100 << '\n';
 
         mcts.pass_action(best_action);
         
         time_limit = 100;
 
+#ifdef LOCAL
         return 0;
+#endif
     }
 }

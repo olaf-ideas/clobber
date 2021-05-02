@@ -4,11 +4,14 @@
 
 #include "../State/state.h"
 #include "../Utils/types.h"
+#include "../Utils/timer.h"
 #include "../MCTS/node.h"
 
 class MCTS {
 
 public:
+
+    Timer timer;
 
     Node *root;
    
@@ -19,7 +22,7 @@ public:
         root = &Node::pool[Node::pool_size++];
         root->expand();
     }
- 
+    
     inline Color simulate(Node* node) {
         State state = node->state;
         while(!state.is_end()) {
@@ -27,7 +30,7 @@ public:
         }
         return state.get_player();
     }
-
+    
     inline Color select(Node *node) {
         if(node->is_terminal()) {
             Color loser = node->state.get_player();
@@ -46,17 +49,15 @@ public:
         node->update(loser);
         return loser;
     }
-
-    inline void run(int time_limit) {
-        clock_t start = clock();
-
-        int iterations = 0;
     
+    inline void run(int time_limit) {
+        
+        int iterations = 0;
         do {
             select(root);
             iterations++;
-        } while((clock() - start) * 1000 < CLOCKS_PER_SEC * time_limit * 97 / 100);
-       
+        } while(timer.get_elapsed() < time_limit - 5);
+        
         // std::cerr << "iterations: " << iterations << '\n';
     }
 
@@ -65,6 +66,7 @@ public:
     }
 
     inline void pass_action(Action action) {
+        if(root->vis == 0)  root->expand();
         root = root->get_child(action);
     }
 

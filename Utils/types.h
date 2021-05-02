@@ -2,6 +2,8 @@
 
 #include <string>
 
+#include <x86intrin.h>
+
 typedef unsigned long long BB;
 typedef unsigned long long Key;
 typedef unsigned long long u64;
@@ -13,6 +15,10 @@ const Color BLACK = 1;
 const Color COLOR_NB = 2;
 
 typedef int16_t Action;
+
+inline float fastlogf(const float& x) { union { float f; uint32_t i; } vx = { x }; float y = vx.i; y *= 8.2629582881927490e-8f; return(y - 87.989971088f); }
+inline float fastsqrtf(const float& x) { union { int i; float x; } u; u.x = x; u.i = (1 << 29) + (u.i >> 1) - (1 << 22); return(u.x); }
+inline float rsqrt_fast(float x) { return _mm_cvtss_f32(_mm_rsqrt_ss(_mm_set_ss(x))); }
 
 inline Action make_action(const int &from, const int &to) {
     return Action(from | (to << 6));

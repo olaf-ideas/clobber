@@ -4,7 +4,7 @@
 
 #include "../State/state.h"
 
-constexpr int POOL_SIZE = 60'000'000;
+constexpr int POOL_SIZE = 25'000'000;
 
 constexpr float infinity = std::numeric_limits<float>::max();
 
@@ -19,7 +19,7 @@ public:
     static Node pool[POOL_SIZE];
     static int  pool_size;
 
-    // 29 bytes ~ 68 * 10^6 nodes
+    // 29 bytes
 
     State state;
     
@@ -45,27 +45,33 @@ public:
         for(Action *now = actions; now != end; now++) {
             state.move(*now);
             pool[pool_size++] = Node(state);
+            if(pool_size == POOL_SIZE)  pool_size = 0;
             state.undo(*now);
         }
     }
 
-    inline float get_ucb(Node* parent) const {
+    inline float get_ucb(float sqrt_log_vis) {
         if(vis == 0)    return infinity;
-        return (vis - win) / float(vis) + EXP_RATE * sqrt(log(parent->vis) / vis);
+        float inv_sqrt = rsqrt_fast(vis);
+        return (((vis - win) * inv_sqrt) + sqrt_log_vis) * inv_sqrt;
     }
 
     inline Node* select() {
         float best_ucb = -infinity;
         Node* best_node = nullptr;
 
-        for(int child_id = 0; child_id < child_len; child_id++) {
-            Node *child = &pool[child_beg + child_id];
+        float sqrt_log_vis = EXP_RATE * fastsqrtf(fastlogf(vis));
+        for(int child_id = child_len - 1; child_id >= 0; child_id--) {
+            int id = child_beg + child_id;
+            if(id > POOL_SIZE)  id -= POOL_SIZE;
+            Node *child = &pool[id];
         
-            float child_ucb = child->get_ucb(this);
+            float child_ucb = child->get_ucb(sqrt_log_vis);
             if(child_ucb > best_ucb) {
                 best_ucb = child_ucb;
                 best_node = child;
             }
+            if(best_ucb == infinity)    break;
         }
         assert(best_node != nullptr);
         return best_node;
@@ -78,7 +84,9 @@ public:
         state.get_actions(actions);
 
         for(int child_id = 0; child_id < child_len; child_id++) {
-            Node *child = &pool[child_beg + child_id];
+            int id = child_beg + child_id;
+            if(id > POOL_SIZE)  id -= POOL_SIZE;
+            Node *child = &pool[id];
 
             if(child->vis > best_vis) {
                 best_vis = child->vis;
