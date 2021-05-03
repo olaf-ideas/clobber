@@ -193,7 +193,7 @@ int main(int argc, char**argv) {
 		
 		string action;
 		
-		bots[turn & 1](turn < 2 ? 1100 : 100) >> action;
+		bots[turn & 1](turn < 2 ? 1100 : 110) >> action;
 		
 		//std::cerr << "action: " << '"' << action << '"' << '\n';
 		
