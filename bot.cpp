@@ -5,7 +5,7 @@
 
 #include <bits/stdc++.h>
 
- // *** Start of: /home/olaf/clobber/MCTS/mcts.h *** 
+ // *** Start of: /home/olaf/clobber/MCTSolver/mctsolver.h *** 
  
  #include <bits/stdc++.h>
  
@@ -23,9 +23,11 @@
    
    typedef int8_t Color;
    
-   const Color WHITE = 0;
-   const Color BLACK = 1;
-   const Color COLOR_NB = 2;
+   constexpr Color WHITE = 0;
+   constexpr Color BLACK = 1;
+   constexpr Color COLOR_NB = 2;
+   
+   constexpr int infinity = 1'000'000'000;
    
    typedef int16_t Action;
    
@@ -299,274 +301,349 @@
   };
   
   // *** End of: /home/olaf/clobber/Utils/timer.h *** 
-  // *** Start of: /home/olaf/clobber/MCTS/node.h *** 
+  // *** Start of: /home/olaf/clobber/MCTSolver/node.h *** 
   
   #include <bits/stdc++.h>
   
   
-  constexpr int POOL_SIZE = 25'000'000;
+  constexpr float EXP_RATE = 2.f;
   
-  constexpr float infinity = std::numeric_limits<float>::max();
+  constexpr int NODE_POOL = 2'000'000;
+  constexpr int ACTION_POOL = 100'000'000;
   
-  constexpr float EXP_RATE = 1.5f;
+  Action action_pool[ACTION_POOL];
+  int action_pool_size = 0;
   
-  Action actions[113];
+  int index_pool[ACTION_POOL];
+  int index_pool_size = 0;
   
   class Node {
-  
+  	
   public:
+  	
+  	static Node node_pool[NODE_POOL];
+  	static int node_pool_size;
+  	
+  	State state;
+  	
+  	int beg;
+  	int end;
+  	
+  	char child_len;
+  	
+  	float vis;
+  	float val;
+  	
+  	Node() { }
+  	
+  	Node(State _state) : state(_state), vis(0), val(0) { }
+  	
+  	void expand() {
+  		
+  		beg = action_pool_size;
+  		end = state.get_actions(action_pool + action_pool_size) - action_pool;
+  		
+  		std::random_shuffle(action_pool + beg, action_pool + end);
+  		
+  		child_len = 0;
+  		
+  		action_pool_size += end - beg;
+  		index_pool_size  += end - beg;
+  	}
+  	
+  	float ucb(float sqrt_log_vis) const {
+  		float inv_sqrt = rsqrt_fast(vis + 1);
+  		return sqrt_log_vis * inv_sqrt + val;
+  	}
+  	
+  	float node_score() const {
+  		return fastsqrtf(vis + 1) + val;
+  	}
+  	
+  	void build() {
+  		for(int id = end; id != beg; id--) {
+  			select();
+  		}
+  	}
+  	
+  	Node* select() {
+  		if(beg != end) {
+  			child_len++;
+  			
+  			state.move(action_pool[--end]);
+  			
+  			index_pool[end] = node_pool_size;
+  			
+  			node_pool[node_pool_size++] = Node(state);
+  			
+  			state.undo(action_pool[  end]);
+  			
+  			return &node_pool[index_pool[end]];
+  		}
+  		
+  		float best_ucb = -2 * infinity;
+  		Node *best_node = nullptr;
+  		
+  		float sqrt_log_vis = EXP_RATE * fastsqrtf(fastlogf(vis));
+  		
+  		for(int child_id = 0; child_id < child_len; child_id++) {
+  			Node *child = &node_pool[index_pool[beg + child_id]];
+  			
+  			float ucb = child->ucb(sqrt_log_vis);
+  			if(ucb > best_ucb) {
+  				best_ucb = ucb;
+  				best_node = child;
+  			}
+  		}
+  		
+  #ifdef DEBUG
+  		assert(best_node != nullptr);
+  #endif
   
-      static Node pool[POOL_SIZE];
-      static int  pool_size;
-  
-      // 29 bytes
-  
-      State state;
-      
-      int   vis;
-      int   win;
-      int   child_beg;
-      char  child_len;
-  
-      Node() { }
-  
-      Node(State _state) : state(_state), vis(0), win(0) { }
-  
-      inline bool is_terminal() const { return state.is_end(); }
-      inline bool is_expanded() const { return vis != 0; }
-  
-      inline void expand() {
-  
-          Action *end = state.get_actions(actions);
-              
-          child_beg = pool_size;
-          child_len = char(end - actions);
-  
-          for(Action *now = actions; now != end; now++) {
-              state.move(*now);
-              pool[pool_size++] = Node(state);
-              if(pool_size == POOL_SIZE)  pool_size = 0;
-              state.undo(*now);
-          }
-      }
-  
-      inline float get_ucb(float sqrt_log_vis) {
-          if(vis == 0)    return infinity;
-          float inv_sqrt = rsqrt_fast(vis);
-          return (((vis - win) * inv_sqrt) + sqrt_log_vis) * inv_sqrt;
-      }
-  
-      inline Node* select() {
-          float best_ucb = -infinity;
-          Node* best_node = nullptr;
-  
-          float sqrt_log_vis = EXP_RATE * fastsqrtf(fastlogf(vis));
-          for(int child_id = child_len - 1; child_id >= 0; child_id--) {
-              int id = child_beg + child_id;
-              if(id > POOL_SIZE)  id -= POOL_SIZE;
-              Node *child = &pool[id];
-          
-              float child_ucb = child->get_ucb(sqrt_log_vis);
-              if(child_ucb > best_ucb) {
-                  best_ucb = child_ucb;
-                  best_node = child;
-              }
-              if(best_ucb == infinity)    break;
-          }
-          assert(best_node != nullptr);
-          return best_node;
-      }
-  
-      inline Action best_action() {
-          int best_vis = -1;
-          Action action = -1;
-      
-          state.get_actions(actions);
-  
-          for(int child_id = 0; child_id < child_len; child_id++) {
-              int id = child_beg + child_id;
-              if(id > POOL_SIZE)  id -= POOL_SIZE;
-              Node *child = &pool[id];
-  
-              if(child->vis > best_vis) {
-                  best_vis = child->vis;
-                  action = actions[child_id];        
-              }
-          }
-  
-          assert(action != -1);
-  
-          return action;
-      }
-  
-      inline void update(Color loser) {
-          vis++;
-          if(state.get_player() != loser) {
-              win++;
-          }
-      }
-  
-      inline Node* get_child(Action action) {
-          state.get_actions(actions);
-  
-          for(int child_id = 0; child_id < child_len; child_id++) {
-              if(actions[child_id] == action) {
-                  return &pool[child_beg + child_id];
-              }
-          }
-          assert(false);
-          return nullptr;
-      }
-  
+  		return best_node;
+  	}
+  	
+  	void update(int new_result) {
+  		val *= vis;
+  		val += -new_result;
+  		vis++;
+  		val /= vis;
+  	}
+  	
+  	Action best_action() {
+  #ifdef DEBUG
+  		assert(beg == end);
+  #endif
+  		
+  		Action best_action = -1;
+  		float best_score = -2 * infinity;
+  		
+  		for(int child_id = 0; child_id < child_len; child_id++) {
+  			float score = node_pool[index_pool[beg + child_id]].node_score();
+  			
+  			if(score > best_score) {
+  				best_score = score;
+  				best_action = action_pool[beg + child_id];
+  			}
+  		}
+  #ifdef DEBUG
+  		assert(best_action != -1);
+  #endif
+  		return best_action;
+  	}
+  	
+  	Node* pass_action(Action action) {
+  #ifdef DEBUG
+  		assert(beg == end);
+  #endif
+  		for(int child_id = 0; child_id < child_len; child_id++) {
+  			if(action_pool[beg + child_id] == action) {
+  				return &node_pool[index_pool[beg + child_id]];
+  			}
+  		}
+  #ifdef DEBUG
+  		assert(false);
+  #endif
+  		return nullptr;
+  	}
+  	
+  	Node* get_child(int child_id) {
+  		return &node_pool[index_pool[beg + child_id]];
+  	}
   };
   
-  Node Node::pool[POOL_SIZE];
-  int  Node::pool_size = 0;
+  Node Node::node_pool[NODE_POOL];
+  int  Node::node_pool_size = 0;
   
-  // *** End of: /home/olaf/clobber/MCTS/node.h *** 
+  // *** End of: /home/olaf/clobber/MCTSolver/node.h *** 
  
- class MCTS {
- 
+ class MCTSolver {
+ private:
+ 	
+ 	Color simulate(State state) {
+ 		while(!state.is_end()) {
+ 			state.move(state.get_random_action());
+ 		}
+ 		return state.get_player();
+ 	}
+ 	
+ 	int solve(Node *node) {
+ 		if(node->state.is_end()) {
+ 			node->val = +infinity;
+ 			return -infinity;
+ 		}
+ 		
+ 		Node *child = node->select();
+ 		
+ 		int result = 0;
+ 		
+ 		if(child->val == +infinity ||
+ 		   child->val == -infinity) {
+ 			
+ 			result = child->val;
+ 			
+ 		} else if(child->vis > 0) {
+ 			
+ 			result = -solve(child);
+ 			
+ 		} else {
+ 			
+ 			child->expand();
+ 			
+ 			result = (simulate(child->state) == node->state.get_player() ? -1 : +1);
+ 			
+ 			child->update(-result);
+ 			
+ 			node ->update(+result);
+ 			
+ 			return result;
+ 			
+ 		}
+ 		
+ 		if(result == +infinity) {
+ 			node->val = -infinity;
+ 			return result;
+ 		}
+ 		
+ 		if(result == -infinity) {
+ 			for(int child_id = 0; child_id < node->child_len; child_id++) {
+ 				if(node->get_child(child_id)->val != result) {
+ 					result = -1;
+ 					node->update(result);
+ 					
+ 					return result;
+ 				}
+ 			}
+ 			
+ 			node->val = +infinity;
+ 			return result;
+ 		}
+ 		
+ 		node->update(result);
+ 		
+ 		return result;
+ 	}
+ 	
  public:
- 
-     Timer timer;
- 
-     Node *root;
-    
-     MCTS() {
-         Node::pool_size = 0;
-         Node::pool[Node::pool_size] = Node(State());
- 
-         root = &Node::pool[Node::pool_size++];
-         root->expand();
-     }
-     
-     inline Color simulate(Node* node) {
-         State state = node->state;
-         while(!state.is_end()) {
-             state.move(state.get_random_action());
-         }
-         return state.get_player();
-     }
-     
-     inline Color select(Node *node) {
-         if(node->is_terminal()) {
-             Color loser = node->state.get_player();
-             node->update(loser);
-             return loser;
-         }
- 
-         if(node->is_expanded()) {
-             Color loser = select(node->select());
-             node->update(loser);
-             return loser;
-         }
- 
-         node->expand();
-         Color loser = simulate(node);
-         node->update(loser);
-         return loser;
-     }
-     
-     inline void run(int time_limit) {
-         
-         int iterations = 0;
-         do {
-             select(root);
-             iterations++;
-         } while(timer.get_elapsed() < time_limit - 5);
-         
-         // std::cerr << "iterations: " << iterations << '\n';
-     }
- 
-     inline Action best_action() {
-         return root->best_action(); 
-     }
- 
-     inline void pass_action(Action action) {
-         if(root->vis == 0)  root->expand();
-         root = root->get_child(action);
-     }
- 
-     inline float win_rate() {
-         return root->win / float(root->vis);
-     }
+ 	
+ 	Timer timer;
+ 	Node* root;
+ 	
+ 	MCTSolver() {
+ 		Node::node_pool_size = 0;
+ 		Node::node_pool[Node::node_pool_size] = Node(State());
+ 		
+ 		root = &Node::node_pool[Node::node_pool_size++];
+ 		
+ 		root->expand();
+ 	}
+ 	
+ 	void run(int time_limit) {
+ 		do {
+ 			solve(root);
+ 		} while(timer.get_elapsed() < time_limit - 5);
+ 	}
+ 	
+ 	Action best_action() {
+ 		return root->best_action();
+ 	}
+ 	
+ 	void pass_action(Action action) {
+ 		if(root->vis == 0) {
+ 			root->expand();
+ 			root->build();
+ 		}
+ 		root = root->pass_action(action);
+ 		if(root->vis == 0) {
+ 			root->expand();
+ 		}
+ 	}
+ 	
+ 	void print(Node *node, int depth) {
+ 		if(depth == 0)	return;
+ 		assert(node != nullptr);
+ 		std::cerr << node->val << ": ";
+ 		for(int child_id = 0; child_id < node->child_len; child_id++) {
+ 			std::cerr << node->get_child(child_id)->val << ' ';
+ 		}
+ 		std::cerr << '\n';
+ 		
+ 		for(int child_id = 0; child_id < node->child_len; child_id++) {
+ 			print(node->get_child(child_id), depth - 1);
+ 		}
+ 	}
+ 	
  };
  
- // *** End of: /home/olaf/clobber/MCTS/mcts.h *** 
+ // *** End of: /home/olaf/clobber/MCTSolver/mctsolver.h *** 
 
-MCTS mcts;
+MCTSolver mcts;
 
 int main() {
-
-/*
-    {
-        int white = 0, black = 0;
-        for(int rep = 0; rep < 1000; rep++) {
-            std::cerr << "rep: " << rep << '\n';
-            MCTS now;
-
-            for(int turn = 0; !now.root->is_terminal(); turn++) {
-                if(turn < 2)    now.run(1000);
-                else            now.run(100);
-            
-                Action action = now.best_action();
-
-                std::cout << to_string(action) << ' ' << std::fixed << std::setprecision(4) << now.win_rate() * 100 << "%" << '\n';
-                
-                now.pass_action(action);
-        
-                now.root->state.debug();
-            }
-            
-            if(now.root->state.get_player() == WHITE)   std::cerr << "WHITE lost\n", white++;
-            else                                        std::cerr << "BLACK lost\n", black++;
-        }
-    
-        std::cerr << "white : " << white << " / " << black << " : black" << '\n';
-    }
-*/
-
-    int board_size;
-    std::cin >> board_size;
-
-    std::string color;
-    std::cin >> color;
-    
-    int time_limit = 1000;
-    for(int turn = 0; ; turn += 2) {
-        for(int i = 0; i < board_size; i++) {
-            std::string line;
-            std::cin >> line;
-            if(i == 0)  mcts.timer.start();
-        }
-
-        std::string last_action;
-        std::cin >> last_action;        
-
-        int action_count;
-        std::cin >> action_count;
-         
-        if(last_action != "null") {
-            mcts.pass_action(from_string(last_action));
-        }
-      
-        mcts.run(time_limit);
-
-        Action best_action = mcts.best_action();
- 
-        std::cout << to_string(best_action) << '\n';
- 
-        std::cerr << "pool%: " << Node::pool_size / float(POOL_SIZE) * 100 << '\n';
-
-        mcts.pass_action(best_action);
-        
-        time_limit = 100;
-
+	
+	//for(int turn = 0; !mcts.root->state.is_end(); turn++) {
+		//mcts.timer.start();
+		//mcts.run(turn < 2 ? 1000 : 100);
+		//std::cerr << to_string(mcts.best_action()) << ' ' << (mcts.root->state.get_player() == WHITE ? "white" : "black") << '\n';
+		//mcts.pass_action(mcts.best_action());
+		
+		//if(turn == 27)	mcts.print(mcts.root, 2);
+		
+		//std::cerr << "turn: " << turn << '\n';
+		//std::cerr << "node pool: " << Node::node_pool_size / float(NODE_POOL) << '\n';
+		//std::cerr << "action pool: " << action_pool_size / float(ACTION_POOL) << '\n';
+		 //mcts.root->state.debug();
+		//std::cerr << std::fixed << std::setprecision(6) << "value: " << mcts.root->val << '\n';
+		//std::cerr << '\n';
+	//}
+	
+	//return 0;
+	
+	int board_size;
+	std::cin >> board_size;
+	
+	std::string color;
+	std::cin >> color;
+	
+	int time_limit = 1000;
+	for(int turn = 0; ; turn += 2) {
+		
+		for(int i = 0; i < board_size; i++) {
+			std::string line;
+			std::cin >> line;
+			if(i == 0)  mcts.timer.start();
+		}
+		
+		std::string last_action;
+		std::cin >> last_action;
+		
+		int action_count;
+		std::cin >> action_count;
+		 
+		if(last_action != "null") {
+			mcts.pass_action(from_string(last_action));
+		}
+		
+		mcts.timer.start();
+		mcts.run(time_limit);
+		
+		Action best_action = mcts.best_action();
+		
+		mcts.pass_action(best_action);
+		
+		std::cout << to_string(best_action) << ' ' << (mcts.root->val == +infinity ? "EZ WIN" : "") << (mcts.root->val == -infinity ? "GG WP" : "") << '\n';
+		std::cerr << "node pool: " << Node::node_pool_size / float(NODE_POOL) << '\n';
+		std::cerr << "action pool: " << action_pool_size / float(ACTION_POOL) << '\n';
+		std::cerr << "nodes: " << Node::node_pool_size << '\n';
+		std::cerr << "value  : " << std::fixed << std::setprecision(6) << mcts.root->val << '\n';
+		std::cerr << '\n';
+		
+		time_limit = 100;
+		
 #ifdef LOCAL
-        return 0;
+	return 0;
 #endif
-    }
+	}
 }
 
 // *** End of: /home/olaf/clobber/main.cpp *** 

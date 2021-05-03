@@ -10,9 +10,11 @@ typedef unsigned long long u64;
 
 typedef int8_t Color;
 
-const Color WHITE = 0;
-const Color BLACK = 1;
-const Color COLOR_NB = 2;
+constexpr Color WHITE = 0;
+constexpr Color BLACK = 1;
+constexpr Color COLOR_NB = 2;
+
+constexpr int infinity = 1'000'000'000;
 
 typedef int16_t Action;
 

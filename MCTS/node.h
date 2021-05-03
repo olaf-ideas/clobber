@@ -51,8 +51,7 @@ public:
     }
 
     inline float get_ucb(float sqrt_log_vis) {
-        if(vis == 0)    return infinity;
-        float inv_sqrt = rsqrt_fast(vis);
+        float inv_sqrt = rsqrt_fast(vis + 1);
         return (((vis - win) * inv_sqrt) + sqrt_log_vis) * inv_sqrt;
     }
 

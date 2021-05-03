@@ -59,7 +59,7 @@ private:
 public:
 
     inline int score() const {
-        
+        return 2137;
     }
 
     State() {
@@ -111,6 +111,21 @@ public:
         }
         return list;
     }
+    
+    inline int action_count() const {
+		BB bb = get_active();
+		int res = 0;
+		while(bb) {
+			res += pop_cnt(attacks[pop_lsb(bb)] & pieces[op]);
+		}
+		return res;
+	}
+	
+	inline bool check(Action action) const {
+		return (pieces[us] & (1ULL << (action & 63))) &&
+			   (pieces[op] & (1ULL << (action >> 6))) &&
+			   (attacks[action & 63] & (1ULL << (action >> 6)));
+	}
 
     inline Action get_random_action() const {
         const int from = random_set_bit(get_active());
@@ -138,6 +153,22 @@ public:
 		}
 		std::cerr << "  +---+---+---+---+---+---+---+---+\n";
 		std::cerr << "    a   b   c   d   e   f   g   h  \n";
+	}
+	
+	inline std::string get_board() const {
+		std::string board;
+		
+		for(int i = 0; i < 8; i++) {
+			for(int j = 0; j < 8; j++) {
+				BB k = 1ULL << (i * 8 + j);
+				if(pieces[WHITE] & k)		board += 'w';
+				else if(pieces[BLACK] & k)	board += 'b';
+				else						board += '.';
+			}
+			if(i != 7)	board += '\n';
+		}
+		
+		return board;
 	}
 
     #undef us
